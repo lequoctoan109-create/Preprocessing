@@ -1,34 +1,74 @@
-# Preprocessing
-# Read the Coca_cola_historical_data from a CSV file into a data frame
-coca_cola <- read.csv("C:/Users/Hp/Downloads/Coca_Cola_historical_data.csv", header = TRUE, sep = ",")
+# 1. Thư viện 
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(reshape2)
+library(forecast)
+library(lmtest)
+library(tseries)
+library(aTSA)
+library(randomForest)
+library(nortest)
 
-# Create a new data frame containing only the columns of interest
-child_coca_cola <- data[,c("Date","Open","High","Low","Close","Volume")]
+# 2. Đọc và tiền xử lý dữ liệu
+Coca_data <- read.csv("C:/Users/Hp/Downloads/Coca_Cola_historical_data.csv")
+head(Coca_data, 10)
 
-# Check the ratio of missing data in variables
-na_ratio <- colMeans(is.na(child_coca_cola))
+# Chuyển Date sang dạng Date
+Coca_data$Date <- ymd_hms(Coca_data$Date) %>% as.Date()
+
+# Chọn các cột cần thiết và sắp xếp theo ngày
+data_clean <- Coca_data %>%
+  select(Date, Open, High, Low, Close, Volume) %>%
+  arrange(Date)
+
+# Kiểm tra dữ liệu khuyết
+na_ratio <- colMeans(is.na(data_clean))
 print(na_ratio)
 
-# Function of removing outliers
-removing_outliers <- function(df, col) {
-  x <- df[[col]]
-  quartiles  <- quantile(x, probs = c(0.25, 0.75))
-  iqr <- IQR(x)
-  
-  Lower <- quartiles[1]- 1.5*iqr
-  Upper <- quartiles[2] + 1.5*iqr
-  
-  df[x >= Lower & x <= Upper, , drop = FALSE]
-}
-# Removing outliers in each columns 
-child_coca_cola <- removing_outliers(child_data, "Open")
-child_coca_cola <- removing_outliers(child_data, "High")
-child_coca_cola <- removing_outliers(child_data, "Low")
-child_coca_cola <- removing_outliers(child_data, "Close")
-child_coca_cola <- removing_outliers(child_data, "Volume")
+# 3. Kiểm tra ngoại lai cho Close
+Q1 <- quantile(data_clean$Close, 0.25, na.rm = TRUE)
+Q3 <- quantile(data_clean$Close, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+lower <- Q1 - 1.5 * IQR
+upper <- Q3 + 1.5 * IQR
 
-# Removing the time in Date column
-removing_time <- function(bien) {
-  as.Date(substr(bien,1, 10 ))
-}
-child_coca_cola$Date <- as.Date(sapply(child_coca_cola$Date, removing_time))
+data_clean2 <- data_clean
+data_clean2$outlier_flag <- ifelse(data_clean2$Close < lower | data_clean2$Close > upper, 1, 0)
+num_outliers <- sum(data_clean2$outlier_flag, na.rm = TRUE)
+total_obs <- nrow(data_clean2)
+pct_outliers <- num_outliers / total_obs * 100
+cat("Số ngoại lai:", num_outliers, " / Tổng:", total_obs, "=>", round(pct_outliers,2), "%\n")
+
+# 4. Thống kê mô tả
+# Thống kê cơ bản
+summary(data_clean)
+
+# Vẽ histogram cho các biến quan trọng
+ggplot(data_clean, aes(x=Close)) +
+  geom_histogram(bins=30, fill="steelblue", alpha=0.7) +
+  theme_minimal() +
+  labs(title="Phân bố giá Close", x="Close", y="Số lượng")
+
+ggplot(data_clean2, aes(x=Volume)) +
+  geom_histogram(bins=30, fill="orange", alpha=0.7) +
+  theme_minimal() +
+  labs(title="Phân bố Volume", x="Volume", y="Số lượng") +
+
+# Boxplot để kiểm tra ngoại lai
+boxplot(data_clean2$Close, main="Boxplot giá Close")
+boxplot(data_clean2$Volume, main="Boxplot Volume")
+
+# Lập ma trận tương quan
+eda_df <- data_clean
+numeric_df <- eda_df[, sapply(eda_df, is.numeric)]
+  corr_matrix <- cor(numeric_df, use = "complete.obs")
+  melted_corr_matrix <- melt(corr_matrix)
+  plt <- ggplot(data = melted_corr_matrix, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile() +
+    geom_text(aes(label = sprintf("%.2f", value)), color = "white", size = 4) +
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), name = "Correlation") +
+    theme_minimal() + 
+    labs(title = "Ma trận tương quan của các cột dữ liệu") +
+  print(plt)
